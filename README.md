@@ -1,3 +1,5 @@
+# This fork has enforced chronos async paradigm
+
 # amysql  [![Build Status](https://travis-ci.org/bung87/amysql.svg?branch=master)](https://travis-ci.org/bung87/amysql)  
 
 `amysql` implements (a subset of) the MySQL/MariaDB client protocol based on asyncnet and asyncdispatch.  

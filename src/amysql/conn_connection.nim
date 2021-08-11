@@ -1,8 +1,5 @@
-when defined(ChronosAsync):
-  import chronos/[asyncloop, asyncsync, handles, transport, timer]
-  import nativesockets
-else:
-  import asyncnet,asyncdispatch, times
+import chronos/[asyncloop, asyncsync, handles, transport, timer]
+import nativesockets
 import ./private/auth
 import ./private/conn_auth
 import ./private/protocol
@@ -61,32 +58,25 @@ proc roundtripQuery(conn:Connection, query: string):Future[void] {.async, tags:[
 template addIdleCheck(conn: Connection) =
   const ValidationQuery = "SELECT 1"
   when TestWhileIdle:
-    when not defined(ChronosAsync):
-      let idleCheck = proc (fd:AsyncFD): bool  {.closure, gcsafe.} =
-        if now() - conn.lastOperationTime >= initDuration(milliseconds=MinEvictableIdleTime):
-          asyncCheck conn.roundtripQuery( ValidationQuery)
-        return false
-      addTimer(TimeBetweenEvictionRuns,oneshot=false,idleCheck)
-    else:
-      proc addInterval(every: Duration, cb: CallbackFunc, udata: pointer = nil): Future[void] =
-        var retFuture = newFuture[void]("chronos.addInterval(Duration)")
-        var interval:CallbackFunc
-        proc scheduleNext(arg: pointer = nil) =
-          if not retFuture.finished():
-            addTimer(Moment.fromNow(every), interval,arg)
+    proc addInterval(every: Duration, cb: CallbackFunc, udata: pointer = nil): Future[void] =
+      var retFuture = newFuture[void]("chronos.addInterval(Duration)")
+      var interval:CallbackFunc
+      proc scheduleNext(arg: pointer = nil) =
+        if not retFuture.finished():
+          addTimer(Moment.fromNow(every), interval,arg)
 
-        interval = proc (arg: pointer = nil) {.gcsafe,raises: [Defect].} =
-          cb(arg)
-          scheduleNext(arg)
+      interval = proc (arg: pointer = nil) {.gcsafe,raises: [Defect].} =
+        cb(arg)
+        scheduleNext(arg)
 
-        scheduleNext(udata)
-        return retFuture
+      scheduleNext(udata)
+      return retFuture
 
-      let idleCheck = proc (arg: pointer) {.gcsafe, raises: [Defect].} =
-        if  Moment.now() - cast[Connection](arg).lastOperationTime  >= milliseconds(MinEvictableIdleTime):
-          asyncSpawn cast[Connection](arg).roundtripQuery( ValidationQuery)
-      
-      asyncSpawn addInterval(milliseconds( TimeBetweenEvictionRuns),idleCheck,cast[pointer](conn))
+    let idleCheck = proc (arg: pointer) {.gcsafe, raises: [Defect].} =
+      if  Moment.now() - cast[Connection](arg).lastOperationTime  >= milliseconds(MinEvictableIdleTime):
+        asyncSpawn cast[Connection](arg).roundtripQuery( ValidationQuery)
+    
+    asyncSpawn addInterval(milliseconds( TimeBetweenEvictionRuns),idleCheck,cast[pointer](conn))
     
 proc finishEstablishingConnection(conn: Connection,
                                   username, password, database: string,
@@ -272,13 +262,9 @@ proc open*(uriStr: string | urlly.Url): Future[Connection] {.async.} =
   ## https://dev.mysql.com/doc/refman/8.0/en/connecting-using-uri-or-key-value-pairs.html
   let uri:urlly.Url = when uriStr is string: urlly.parseUrl(uriStr) else: uriStr
   let port = if uri.port.len > 0: parseInt(uri.port).int32 else: 3306'i32
-  when not defined(ChronosAsync):
-    let transp = newAsyncSocket(AF_INET, SOCK_STREAM, buffered = true)
-    await connect(transp, uri.hostname, Port(port))
-  else:
-    let isIp = net.isIpAddress(uri.hostname)
-    let host:string = if isIp: uri.hostname else: nativesockets.getHostByName(uri.hostname).addrList[^1]
-    let transp = await connect(initTAddress(host,Port(port) ))
+  let isIp = net.isIpAddress(uri.hostname)
+  let host:string = if isIp: uri.hostname else: nativesockets.getHostByName(uri.hostname).addrList[^1]
+  let transp = await connect(initTAddress(host,Port(port) ))
   let connectAttrs = handleConnectAttrs(uri.query)
   result = await establishConnection(transp, uri.username, uri.password, uri.path[ 1 .. uri.path.high ],connectAttrs )
   if uri.query.len > 0:
@@ -286,18 +272,11 @@ proc open*(uriStr: string | urlly.Url): Future[Connection] {.async.} =
 
 proc open*(connection, user, password:string; database = ""; connectAttrs:Table[string,string] = default(Table[string, string])): Future[Connection] {.async, #[tags: [DbEffect]]#.} =
   var isPath = false
-  when not defined(ChronosAsync):
-    var sock:AsyncSocket
-  else:
-    var sock:StreamTransport
+  var sock:StreamTransport
   when defined(posix):
     isPath = connection[0] == '/'
   if isPath:
-    when not defined(ChronosAsync):
-      sock = newAsyncSocket(AF_UNIX, SOCK_STREAM, buffered = true)
-      await connectUnix(sock,connection)
-    else:
-      sock = await connect initTAddress(connection)
+    sock = await connect initTAddress(connection)
   else:
     let
       colonPos = connection.find(':')
@@ -305,13 +284,9 @@ proc open*(connection, user, password:string; database = ""; connectAttrs:Table[
             else: substr(connection, 0, colonPos-1)
       port: int32 = if colonPos < 0: 3306'i32
                     else: substr(connection, colonPos+1).parseInt.int32
-    when not defined(ChronosAsync):
-      sock = newAsyncSocket(AF_INET, SOCK_STREAM, buffered = true)
-      await connect(sock, host, Port(port))
-    else:
-      let isIp = net.isIpAddress(host)
-      let ip:string = if isIp: host else: nativesockets.getHostByName(host).addrList[^1]
-      sock = await connect( initTAddress(ip, Port(port)))
+    let isIp = net.isIpAddress(host)
+    let ip:string = if isIp: host else: nativesockets.getHostByName(host).addrList[^1]
+    sock = await connect( initTAddress(ip, Port(port)))
   result = await establishConnection(sock, user, password, database, connectAttrs)
 
 proc close*(conn: Connection): Future[void] {.async, #[tags: [DbEffect]]#.} =
@@ -320,7 +295,4 @@ proc close*(conn: Connection): Future[void] {.async, #[tags: [DbEffect]]#.} =
   buf.add( char(Command.quit) )
   await conn.sendPacket(buf, resetSeqId=true)
   await conn.receivePacket(drop_ok=true)
-  when defined(ChronosAsync):
-    await conn.transp.closeWait()
-  else:
-    conn.transp.close()
+  await conn.transp.closeWait()

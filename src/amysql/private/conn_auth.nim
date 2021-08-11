@@ -2,12 +2,9 @@ import ../conn
 import ./errors
 import ./auth
 import ./protocol
-when defined(ChronosAsync):
-  import chronos/[asyncloop, asyncsync, handles, transport, timer]
-  import times except milliseconds,Duration,toParts,DurationZero,initDuration
-  const DurationZero = default(Duration)
-else:
-  import asyncdispatch,times
+import chronos/[asyncloop, asyncsync, handles, transport, timer]
+import times except milliseconds,Duration,toParts,DurationZero,initDuration
+const DurationZero = default(Duration)
 import strutils
 import logging
 

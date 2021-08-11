@@ -1,8 +1,5 @@
 
-when defined(ChronosAsync):
-  import chronos
-else:
-  import asyncnet,times
+import chronos
 import ./private/cap
 import regex
 import ./private/utils
@@ -18,10 +15,7 @@ type
   Version* = distinct string
   Connection* = ref ConnectionObj
   ConnectionObj* = object of RootObj
-    when defined(ChronosAsync):
-      transp*: StreamTransport
-    else:
-      transp*: AsyncSocket               # Bytestream connection
+    transp*: StreamTransport
     sequenceId*: uint8              # Next expected seq number (mod-256)
     when defined(mysql_compression_mode):
       compressedSequenceId*: uint8
@@ -37,10 +31,7 @@ type
     priv_isMaria: Option[bool]
     authenticated*: bool
     when TestWhileIdle:
-      when not defined(ChronosAsync):
-        lastOperationTime*: DateTime
-      else:
-        lastOperationTime*: Moment
+      lastOperationTime*: Moment
     buf*: seq[char]
     bufLen*: int
     payloadLen*: int

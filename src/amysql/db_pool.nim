@@ -8,12 +8,9 @@
 
 import ./conn
 import locks
-when defined(ChronosAsync):
-  import chronos/[asyncloop, asyncsync, handles, transport, timer]
-  import times except milliseconds,Duration,toParts,DurationZero,initDuration
-  const DurationZero = default(Duration)
-else:
-  import asyncdispatch,times
+import chronos/[asyncloop, asyncsync, handles, transport, timer]
+import times except milliseconds,Duration,toParts,DurationZero,initDuration
+const DurationZero = default(Duration)
 import ../amysql
 import urlly
 import strutils
@@ -88,12 +85,8 @@ type
     
   DBConnObj = object
     pool: DBPoolRef
-    when not defined(ChronosAsync):
-      createdAt: DateTime #time.Time
-      returnedAt: DateTime # Time the connection was created or returned.
-    else:
-      createdAt: Moment
-      returnedAt: Moment
+    createdAt: Moment
+    returnedAt: Moment
     lock: Lock  # guards following
     conn: ptr Connection
     needReset: bool # The connection session should be reset before use if true.
@@ -106,12 +99,8 @@ type
 
 proc newDBConn*(writer:ptr Channel[DBResult]): DBConn =
   new result
-  when not defined(ChronosAsync):
-    result.createdAt = now()
-    result.returnedAt = now()
-  else:
-    result.createdAt = Moment.now()
-    result.returnedAt = Moment.now()
+  result.createdAt = Moment.now()
+  result.returnedAt = Moment.now()
   result.reader = cast[ptr Channel[DBStmt]](
     allocShared0(sizeof(Channel[DBStmt]))
   )
@@ -126,10 +115,7 @@ proc close*(self: DBConn) {.async.} =
 proc expired*(self: DBConn, timeout:Duration): bool = 
   if timeout <= DurationZero:
     return false
-  when not defined(ChronosAsync):
-    let n = now()
-  else:
-    let n = Moment.now()
+  let n = Moment.now()
   return self.createdAt + timeout >= n
 
 

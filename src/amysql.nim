@@ -27,12 +27,9 @@ export quote
 import amysql/private/errors
 export errors
 
-when defined(ChronosAsync):
-  import times except milliseconds,Duration,toParts,DurationZero,initDuration
-  import chronos/[asyncloop, asyncsync, handles, transport, timer]
-  const DurationZero = default(Duration)
-else:
-  import asyncnet,asyncdispatch, times
+import times except milliseconds,Duration,toParts,DurationZero,initDuration
+import chronos/[asyncloop, asyncsync, handles, transport, timer]
+const DurationZero = default(Duration)
 import macros except floatVal
 import net  # needed for the SslContext type
 import db_common

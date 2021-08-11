@@ -1,36 +1,32 @@
 
 include ./protocol_basic
 import ./cap
-when defined(ChronosAsync):
-  import chronos/[asyncloop, asyncsync, handles, transport, timer]
-  import times except milliseconds,Duration,toParts,DurationZero,initDuration
-  const DurationZero* = default(Duration)
-  proc initDuration*(nanoseconds: int64=0, microseconds: int64 = 0, milliseconds: int64 = 0, seconds: int64 = 0, minutes: int64 = 0, hours: int64 = 0, days: int64 = 0, weeks: int64 = 0): Duration =
-    default(Duration) + nanoseconds.nanoseconds + microseconds.microseconds + milliseconds.milliseconds + seconds.seconds + minutes.minutes + hours.hours + days.days + weeks.weeks
-  proc toParts*(dur: Duration): DurationParts =
-    
-    var remS = dur.seconds
-    var remNs = dur.nanoseconds.int
+import chronos/[asyncloop, asyncsync, handles, transport, timer]
+import times except milliseconds,Duration,toParts,DurationZero,initDuration
+const DurationZero* = default(Duration)
+proc initDuration*(nanoseconds: int64=0, microseconds: int64 = 0, milliseconds: int64 = 0, seconds: int64 = 0, minutes: int64 = 0, hours: int64 = 0, days: int64 = 0, weeks: int64 = 0): Duration =
+  default(Duration) + nanoseconds.nanoseconds + microseconds.microseconds + milliseconds.milliseconds + seconds.seconds + minutes.minutes + hours.hours + days.days + weeks.weeks
+proc toParts*(dur: Duration): DurationParts =
+  
+  var remS = dur.seconds
+  var remNs = dur.nanoseconds.int
 
-    # Ensure the same sign for seconds and nanoseconds
-    if remS < 0 and remNs != 0:
-      remNs -= convert(Seconds, Nanoseconds, 1)
-      remS.inc 1
+  # Ensure the same sign for seconds and nanoseconds
+  if remS < 0 and remNs != 0:
+    remNs -= convert(Seconds, Nanoseconds, 1)
+    remS.inc 1
 
-    for unit in countdown(Weeks, Seconds):
-      let quantity = convert(Seconds, unit, remS)
-      remS = remS mod convert(unit, Seconds, 1)
+  for unit in countdown(Weeks, Seconds):
+    let quantity = convert(Seconds, unit, remS)
+    remS = remS mod convert(unit, Seconds, 1)
 
-      result[unit] = quantity
+    result[unit] = quantity
 
-    for unit in countdown(Milliseconds, Nanoseconds):
-      let quantity = convert(Nanoseconds, unit, remNs)
-      remNs = remNs mod convert(unit, Nanoseconds, 1)
+  for unit in countdown(Milliseconds, Nanoseconds):
+    let quantity = convert(Nanoseconds, unit, remNs)
+    remNs = remNs mod convert(unit, Nanoseconds, 1)
 
-      result[unit] = quantity
-else:
-  import asyncnet,asyncdispatch
-  import times except milliseconds
+    result[unit] = quantity
 import ../conn
 import strutils
 import net
@@ -216,10 +212,7 @@ proc sendPacket*(conn: Connection, buf: sink string, resetSeqId = false): Future
   # us to write the packet header.
   # https://dev.mysql.com/doc/internals/en/compressed-packet-header.html
   when TestWhileIdle:
-    when not defined(ChronosAsync):
-      conn.lastOperationTime = now()
-    else:
-      conn.lastOperationTime = Moment.now()
+    conn.lastOperationTime = Moment.now()
   const TimeoutErrorMsg = "Timeout when send packet"
   let bodyLen = len(buf) - 4
   setInt32(buf,0,bodyLen)
@@ -231,15 +224,11 @@ proc sendPacket*(conn: Connection, buf: sink string, resetSeqId = false): Future
     buf[3] = char( conn.sequenceId )
     inc(conn.sequenceId)
     var success = true
-    when defined(ChronosAsync):
-      let send = conn.transp.write(buf)
-      try:
-        discard await wait(send, WriteTimeOut)
-      except AsyncTimeoutError:
-        success = false
-    else:
-      let send = conn.transp.send(buf,flags = {})
-      success = await withTimeout(send, WriteTimeOut)
+    let send = conn.transp.write(buf)
+    try:
+      discard await wait(send, WriteTimeOut)
+    except AsyncTimeoutError:
+      success = false
     if not success:
       raise newException(TimeoutError, TimeoutErrorMsg)
   else:
@@ -277,30 +266,22 @@ proc sendPacket*(conn: Connection, buf: sink string, resetSeqId = false): Future
       else:
         packet.add buf
       var success = true
-      when not defined(ChronosAsync):
-        let send = conn.transp.send(packet[0].addr,packetLen)
-        success = await withTimeout(send, WriteTimeOut)
-      else:
-        let send = conn.transp.write(packet[0].addr,packetLen)
-        try:
-          discard await wait(send, WriteTimeOut)
-        except AsyncTimeoutError:
-          success = false
+      let send = conn.transp.write(packet[0].addr,packetLen)
+      try:
+        discard await wait(send, WriteTimeOut)
+      except AsyncTimeoutError:
+        success = false
       if not success:
         raise newException(TimeoutError, TimeoutErrorMsg)
     else:
       buf[3] = char( conn.sequenceId )
       inc(conn.sequenceId)
       var success = true
-      when not defined(ChronosAsync):
-        let send = conn.transp.send(buf)
-        success = await withTimeout(send, WriteTimeOut)
-      else:
-        let send = conn.transp.write(buf)
-        try:
-          discard await wait(send, WriteTimeOut)
-        except AsyncTimeoutError:
-          success = false
+      let send = conn.transp.write(buf)
+      try:
+        discard await wait(send, WriteTimeOut)
+      except AsyncTimeoutError:
+        success = false
       if not success:
         raise newException(TimeoutError, TimeoutErrorMsg)
 
@@ -560,10 +541,7 @@ proc receivePacket*(conn:Connection, drop_ok: bool = false) {.async, tags:[ReadI
     conn.buf.setLen(MysqlBufSize)
   zeroMem conn.buf[0].addr,MysqlBufSize
   when TestWhileIdle:
-    when not defined(ChronosAsync):
-      conn.lastOperationTime = now()
-    else:
-      conn.lastOperationTime = Moment.now()
+    conn.lastOperationTime = Moment.now()
   const TimeoutErrorMsg = "Timeout when receive packet"
   const NormalLen = 4
   const CompressedLen = 7
@@ -573,15 +551,11 @@ proc receivePacket*(conn:Connection, drop_ok: bool = false) {.async, tags:[ReadI
   when not defined(mysql_compression_mode):
     offset = NormalLen
     var success = true
-    when not defined(ChronosAsync):
-      let rec = conn.transp.recvInto(conn.buf[0].addr, NormalLen,flags = {})
-      success = await withTimeout(rec, ReadTimeOut)
-    else:
-      let rec = conn.transp.readOnce(conn.buf[0].addr, NormalLen)
-      try:
-        discard await wait(rec, ReadTimeOut)
-      except AsyncTimeoutError:
-        success = false
+    let rec = conn.transp.readOnce(conn.buf[0].addr, NormalLen)
+    try:
+      discard await wait(rec, ReadTimeOut)
+    except AsyncTimeoutError:
+      success = false
     if not success:
       raise newException(TimeoutError, TimeoutErrorMsg)
     headerLen = rec.read
@@ -594,15 +568,11 @@ proc receivePacket*(conn:Connection, drop_ok: bool = false) {.async, tags:[ReadI
       # (3)uncompressed payload length = 32 00 00 -> 50
       offset = CompressedLen
       var success = true
-      when not defined(ChronosAsync):
-        let rec = conn.transp.recvInto(conn.buf[0].addr,CompressedLen)
-        success = await withTimeout(rec, ReadTimeOut)
-      else:
-        let rec = conn.transp.readOnce(conn.buf[0].addr,CompressedLen)
-        try:
-          discard await wait(rec, ReadTimeOut)
-        except AsyncTimeoutError:
-          success = false
+      let rec = conn.transp.readOnce(conn.buf[0].addr,CompressedLen)
+      try:
+        discard await wait(rec, ReadTimeOut)
+      except AsyncTimeoutError:
+        success = false
       if not success:
         raise newException(TimeoutError, TimeoutErrorMsg)
       headerLen = rec.read
@@ -611,15 +581,11 @@ proc receivePacket*(conn:Connection, drop_ok: bool = false) {.async, tags:[ReadI
     else:
       offset = NormalLen
       var success = true
-      when not defined(ChronosAsync):
-        let rec = conn.transp.recvInto(conn.buf[0].addr,NormalLen)
-        success = await withTimeout(rec, ReadTimeOut)
-      else:
-        let rec = conn.transp.readOnce(conn.buf[0].addr,NormalLen)
-        try:
-          discard await wait(rec, ReadTimeOut)
-        except AsyncTimeoutError:
-          success = false
+      let rec = conn.transp.readOnce(conn.buf[0].addr,NormalLen)
+      try:
+        discard await wait(rec, ReadTimeOut)
+      except AsyncTimeoutError:
+        success = false
       if not success:
         raise newException(TimeoutError, TimeoutErrorMsg)
       headerLen = rec.read
@@ -640,15 +606,11 @@ proc receivePacket*(conn:Connection, drop_ok: bool = false) {.async, tags:[ReadI
   if conn.fullPacketLen > MysqlBufSize:
     conn.buf.setLen(offset + conn.payloadLen)
   var payloadRecvSuccess = true
-  when not defined(ChronosAsync):
-    let payload = conn.transp.recvInto(conn.buf[offset].addr,conn.payloadLen)
-    payloadRecvSuccess = await withTimeout(payload, ReadTimeOut)
-  else:
-    let payload = conn.transp.readOnce(conn.buf[offset].addr,conn.payloadLen)
-    try:
-      discard await wait(payload, ReadTimeOut)
-    except AsyncTimeoutError:
-      payloadRecvSuccess = false
+  let payload = conn.transp.readOnce(conn.buf[offset].addr,conn.payloadLen)
+  try:
+    discard await wait(payload, ReadTimeOut)
+  except AsyncTimeoutError:
+    payloadRecvSuccess = false
   if not payloadRecvSuccess:
     raise newException(TimeoutError, TimeoutErrorMsg)
   conn.bufLen = payload.read
