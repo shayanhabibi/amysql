@@ -551,14 +551,17 @@ proc receivePacket*(conn:Connection, drop_ok: bool = false) {.async, tags:[ReadI
   when not defined(mysql_compression_mode):
     offset = NormalLen
     var success = true
-    let rec = conn.transp.readOnce(conn.buf[0].addr, NormalLen)
+    # let rec = conn.transp.readOnce(conn.buf[0].addr, NormalLen)
+    # try:
+    #   discard await wait(rec, ReadTimeOut)
     try:
-      discard await wait(rec, ReadTimeOut)
+      await wait(conn.transp.readExactly(conn.buf[0].addr, NormalLen), ReadTimeOut)
     except AsyncTimeoutError:
       success = false
     if not success:
       raise newException(TimeoutError, TimeoutErrorMsg)
-    headerLen = rec.read
+    # headerLen = rec.read
+    headerLen = NormalLen
   else:
     if conn.use_zstd():
       # https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_basic_compression_packet.html#sect_protocol_basic_compression_packet_header
@@ -595,6 +598,8 @@ proc receivePacket*(conn:Connection, drop_ok: bool = false) {.async, tags:[ReadI
     else:
       raise newException(ProtocolError, "Connection closed")
   if headerLen != 4 and headerLen != 7:
+    conn.printBufInfo()
+    echo headerLen
     raise newException(ProtocolError, "Connection closed unexpectedly")
   conn.payloadLen = conn.processHeader()
   conn.fullPacketLen = conn.payloadLen + offset
@@ -606,18 +611,27 @@ proc receivePacket*(conn:Connection, drop_ok: bool = false) {.async, tags:[ReadI
   if conn.fullPacketLen > MysqlBufSize:
     conn.buf.setLen(offset + conn.payloadLen)
   var payloadRecvSuccess = true
-  let payload = conn.transp.readOnce(conn.buf[offset].addr,conn.payloadLen)
+  # let payload = conn.transp.readOnce(conn.buf[offset].addr,conn.payloadLen)
+  # try:
+  #   discard await wait(payload, ReadTimeOut)
   try:
-    discard await wait(payload, ReadTimeOut)
+    await wait(conn.transp.readExactly(conn.buf[offset].addr, conn.payLoadLen), ReadTimeOut)
   except AsyncTimeoutError:
     payloadRecvSuccess = false
   if not payloadRecvSuccess:
     raise newException(TimeoutError, TimeoutErrorMsg)
-  conn.bufLen = payload.read
+  conn.bufLen = conn.payLoadLen
+  # conn.bufLen = payload.read
+  # echo payload.read
   if conn.bufLen == 0:
+    conn.printBufInfo()
     raise newException(ProtocolError, "Connection closed unexpectedly")
   if conn.bufLen != conn.payloadLen:
+    conn.printBufInfo()
+    echo conn.buf
     raise newException(ProtocolError, "TODO finish this part")
+  else:
+    conn.printBufInfo()
   when defined(mysql_compression_mode):
     if conn.use_zstd():
       conn.incPos offset
